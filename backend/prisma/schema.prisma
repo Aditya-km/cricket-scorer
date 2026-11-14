@@ -1,0 +1,604 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum PlayerRole {
+  BATTER
+  BOWLER
+  ALL_ROUNDER
+  WICKETKEEPER
+}
+
+enum MatchFormat {
+  T10
+  T20
+  ODI
+  TEST
+}
+
+enum TossDecision {
+  BAT
+  BOWL
+}
+
+enum MatchStatus {
+  UPCOMING
+  LIVE
+  COMPLETED
+  ABANDONED
+}
+
+enum MatchResultType {
+  WIN_RUNS
+  WIN_WICKETS
+  WIN_INNINGS_RUNS
+  TIE
+  DRAW
+  NO_RESULT
+}
+
+enum InningsStatus {
+  IN_PROGRESS
+  COMPLETED
+  DECLARED
+}
+
+enum ExtraType {
+  NONE
+  WIDE
+  NO_BALL
+  BYE
+  LEG_BYE
+  PENALTY
+}
+
+enum DismissalType {
+  BOWLED
+  CAUGHT
+  LBW
+  RUN_OUT
+  STUMPED
+  HIT_WICKET
+  RETIRED_OUT
+  OBSTRUCTING_FIELD
+}
+
+enum UserRole {
+  ADMIN
+  TEAM
+}
+
+model Team {
+  id           String   @id @default(uuid())
+  teamName     String
+  username     String   @unique
+  email        String   @unique
+  passwordHash String
+  role         UserRole @default(TEAM)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  players      Player[]
+  homeMatches  Match[]  @relation("TeamA")
+  awayMatches  Match[]  @relation("TeamB")
+  gullyMatches GullyMatch[] @relation("RegisteredTeamGullyMatches")
+
+  @@index([username])
+  @@index([email])
+  @@index([role])
+}
+
+model Player {
+  id           String     @id @default(uuid())
+  teamId       String
+  playerName   String
+  jerseyNumber Int
+  role         PlayerRole
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  team         Team       @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  matchPlayers     MatchPlayer[]
+  battingScorecards BattingScorecard[]
+  bowlingScorecards BowlingScorecard[]
+  wicketsTaken     Wicket[]           @relation("BowlerWickets")
+  wicketsDismissed Wicket[]           @relation("DismissedPlayer")
+  catchesRunOuts   Wicket[]           @relation("FielderDismissals")
+
+  // Gully Cricket Relations
+  gullySinglesBatterMatches GullyMatch[]            @relation("SinglesBatter")
+  gullyCaptainTeams         GullyTemporaryTeam[]
+  gullyMatchParticipations  GullyMatchPlayer[]      @relation("GullyPlayerParticipation")
+  gullyBattingScores        GullyBattingScorecard[] @relation("GullyBattingScores")
+  gullyBowlingScores        GullyBowlingScorecard[] @relation("GullyBowlingScores")
+  gullyWicketsTaken         GullyWicket[]           @relation("GullyBowlerWickets")
+  gullyWicketsDismissed     GullyWicket[]           @relation("GullyDismissedPlayer")
+  gullyCatchesRunOuts       GullyWicket[]           @relation("GullyFielderDismissals")
+
+  @@unique([teamId, jerseyNumber])
+  @@index([teamId])
+  @@index([playerName])
+  @@index([jerseyNumber])
+}
+
+model Match {
+  id                    String          @id @default(uuid())
+  format                MatchFormat
+  teamAId               String
+  teamBId               String
+  matchDate             DateTime
+  venue                 String?
+  tossWinnerId          String?
+  tossDecision          TossDecision?
+  status                MatchStatus     @default(UPCOMING)
+  resultType            MatchResultType?
+  resultDescription     String?
+  winnerId              String?
+  currentInningsNumber  Int             @default(1)
+  followOnEnforced      Boolean         @default(false)
+  currentDay            Int             @default(1)
+  currentSession        Int             @default(1)
+  dayOvers              Int             @default(0)
+  sessionOvers          Int             @default(0)
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  teamA                 Team            @relation("TeamA", fields: [teamAId], references: [id])
+  teamB                 Team            @relation("TeamB", fields: [teamBId], references: [id])
+
+  matchPlayers          MatchPlayer[]
+  innings               Innings[]
+  sessions              MatchSession[]
+
+  @@index([teamAId])
+  @@index([teamBId])
+  @@index([status])
+  @@index([format])
+}
+
+model MatchPlayer {
+  id          String   @id @default(uuid())
+  matchId     String
+  playerId    String
+  teamId      String
+  isPlayingXI Boolean  @default(true)
+
+  match       Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  player      Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([matchId, playerId])
+  @@index([matchId])
+  @@index([playerId])
+  @@index([teamId])
+}
+
+model Innings {
+  id                   String        @id @default(uuid())
+  matchId              String
+  inningsNumber        Int
+  battingTeamId        String
+  bowlingTeamId        String
+  totalRuns            Int           @default(0)
+  wickets              Int           @default(0)
+  legalBalls           Int           @default(0)
+  oversCompletedText   String        @default("0.0")
+  status               InningsStatus @default(IN_PROGRESS)
+  targetRuns           Int?
+  isDeclared           Boolean       @default(false)
+  byes                 Int           @default(0)
+  legByes              Int           @default(0)
+  wides                Int           @default(0)
+  noBalls              Int           @default(0)
+  penaltyRuns          Int           @default(0)
+  currentStrikerId     String?
+  currentNonStrikerId  String?
+  currentBowlerId      String?
+  lastBowlerId         String?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  match                Match         @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  deliveries           Delivery[]
+  wicketsList          Wicket[]
+  battingScorecards    BattingScorecard[]
+  bowlingScorecards    BowlingScorecard[]
+  partnerships         Partnership[]
+
+  @@unique([matchId, inningsNumber])
+  @@index([matchId])
+  @@index([battingTeamId])
+  @@index([bowlingTeamId])
+}
+
+model Delivery {
+  id                           String         @id @default(uuid())
+  inningsId                    String
+  overNumber                   Int
+  ballNumber                   Int
+  strikerId                    String
+  nonStrikerId                 String
+  bowlerId                     String
+  batterRuns                   Int            @default(0)
+  extraRuns                    Int            @default(0)
+  extraType                    ExtraType      @default(NONE)
+  totalRuns                    Int            @default(0)
+  isLegalDelivery              Boolean        @default(true)
+  isWicket                     Boolean        @default(false)
+  dismissalType                DismissalType?
+  dismissedPlayerId            String?
+  fielderId                    String?
+  bowlerCredited               Boolean        @default(false)
+  runsCompletedBeforeDismissal Int            @default(0)
+  strikeRotated                Boolean        @default(false)
+  incomingBatterId             String?
+  prevStrikerId                String?
+  prevNonStrikerId             String?
+  prevBowlerId                 String?
+  createdAt                    DateTime       @default(now())
+
+  innings                      Innings        @relation(fields: [inningsId], references: [id], onDelete: Cascade)
+  wickets                      Wicket[]
+
+  @@index([inningsId])
+  @@index([strikerId])
+  @@index([bowlerId])
+  @@index([overNumber])
+}
+
+model Wicket {
+  id             String         @id @default(uuid())
+  inningsId      String
+  deliveryId     String?
+  playerId       String
+  dismissalType  DismissalType
+  bowlerCredited Boolean        @default(true)
+  bowlerId       String?
+  fielderId      String?
+  overBallText   String
+  teamRunsAtFall Int
+  wicketNumber   Int
+  createdAt      DateTime       @default(now())
+
+  innings        Innings        @relation(fields: [inningsId], references: [id], onDelete: Cascade)
+  delivery       Delivery?      @relation(fields: [deliveryId], references: [id], onDelete: SetNull)
+  player         Player         @relation("DismissedPlayer", fields: [playerId], references: [id])
+  bowler         Player?        @relation("BowlerWickets", fields: [bowlerId], references: [id])
+  fielder        Player?        @relation("FielderDismissals", fields: [fielderId], references: [id])
+
+  @@index([inningsId])
+  @@index([playerId])
+  @@index([bowlerId])
+}
+
+model BattingScorecard {
+  id            String         @id @default(uuid())
+  inningsId     String
+  playerId      String
+  battingOrder  Int            @default(0)
+  runs          Int            @default(0)
+  balls         Int            @default(0)
+  fours         Int            @default(0)
+  sixes         Int            @default(0)
+  strikeRate    Float          @default(0.0)
+  notOut        Boolean        @default(true)
+  dismissalType DismissalType?
+  dismissalText String?
+  bowlerId      String?
+  fielderId     String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  innings       Innings        @relation(fields: [inningsId], references: [id], onDelete: Cascade)
+  player        Player         @relation(fields: [playerId], references: [id])
+
+  @@unique([inningsId, playerId])
+  @@index([inningsId])
+  @@index([playerId])
+}
+
+model BowlingScorecard {
+  id           String   @id @default(uuid())
+  inningsId    String
+  playerId     String
+  bowlingOrder Int      @default(0)
+  legalBalls   Int      @default(0)
+  oversText    String   @default("0.0")
+  maidens      Int      @default(0)
+  runsConceded Int      @default(0)
+  wickets      Int      @default(0)
+  economy      Float    @default(0.0)
+  wides        Int      @default(0)
+  noBalls      Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  innings      Innings  @relation(fields: [inningsId], references: [id], onDelete: Cascade)
+  player       Player   @relation(fields: [playerId], references: [id])
+
+  @@unique([inningsId, playerId])
+  @@index([inningsId])
+  @@index([playerId])
+}
+
+model MatchSession {
+  id            String   @id @default(uuid())
+  matchId       String
+  dayNumber     Int
+  sessionNumber Int
+  oversBowled   Int      @default(0)
+  runsScored    Int      @default(0)
+  wicketsFallen Int      @default(0)
+  status        String   @default("COMPLETED")
+  createdAt     DateTime @default(now())
+
+  match         Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@index([matchId])
+}
+
+model Partnership {
+  id           String   @id @default(uuid())
+  inningsId    String
+  wicketNumber Int
+  batterOneId  String
+  batterTwoId  String
+  runs         Int      @default(0)
+  balls        Int      @default(0)
+
+  innings      Innings  @relation(fields: [inningsId], references: [id], onDelete: Cascade)
+
+  @@index([inningsId])
+}
+
+// ==========================================
+// GULLY CRICKET ENUMS & MODELS
+// ==========================================
+
+enum GullyMatchType {
+  TEAM_MATCH
+  SINGLES_MATCH
+}
+
+enum BowlingAllocationRule {
+  EXACT
+  MAX_LIMIT
+}
+
+enum SinglesDismissalRule {
+  LAST_WICKET_ENDS_INNINGS
+  BATTER_CONTINUES
+}
+
+enum BowlerOrderRule {
+  FREE_SELECTION
+  PREDEFINED_ORDER
+}
+
+model GullyMatch {
+  id                    String                @id @default(uuid())
+  registeredTeamId      String
+  matchType             GullyMatchType
+  matchDate             DateTime              @default(now())
+  venue                 String?
+  status                MatchStatus           @default(UPCOMING)
+  totalOvers            Int                   @default(2)
+  playersPerTeam        Int?
+  bowlingAllocationRule BowlingAllocationRule @default(MAX_LIMIT)
+  singlesDismissalRule  SinglesDismissalRule?
+  bowlerOrderRule       BowlerOrderRule?
+  selectedBatterId      String?
+  draftShuffled         Boolean               @default(false)
+  tossWinnerTeamId      String?
+  tossDecision          TossDecision?
+  currentInningsNumber  Int                   @default(1)
+  currentRoundNumber    Int                   @default(1)
+  singlesBattingOrder   String?               @db.Text
+  resultType            MatchResultType?
+  resultDescription     String?
+  winnerName            String?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  registeredTeam        Team                  @relation("RegisteredTeamGullyMatches", fields: [registeredTeamId], references: [id], onDelete: Cascade)
+  selectedBatter        Player?               @relation("SinglesBatter", fields: [selectedBatterId], references: [id])
+  temporaryTeams        GullyTemporaryTeam[]
+  matchPlayers          GullyMatchPlayer[]
+  innings               GullyInnings[]
+
+  @@index([registeredTeamId])
+  @@index([status])
+  @@index([matchType])
+}
+
+model GullyTemporaryTeam {
+  id               String             @id @default(uuid())
+  gullyMatchId     String
+  teamName         String
+  isTeamA          Boolean            @default(true)
+  captainPlayerId  String?
+  createdAt        DateTime           @default(now())
+
+  gullyMatch       GullyMatch         @relation(fields: [gullyMatchId], references: [id], onDelete: Cascade)
+  captain          Player?            @relation(fields: [captainPlayerId], references: [id])
+  players          GullyMatchPlayer[]
+
+  @@index([gullyMatchId])
+}
+
+model GullyMatchPlayer {
+  id               String              @id @default(uuid())
+  gullyMatchId     String
+  playerId         String
+  temporaryTeamId  String?
+  isBatter         Boolean             @default(false)
+  isBowler         Boolean             @default(true)
+  allocatedOvers   Int                 @default(1)
+  bowlingOrder     Int?
+  battingOrder     Int?
+  isPlaying        Boolean             @default(true)
+
+  gullyMatch       GullyMatch          @relation(fields: [gullyMatchId], references: [id], onDelete: Cascade)
+  player           Player              @relation("GullyPlayerParticipation", fields: [playerId], references: [id], onDelete: Cascade)
+  temporaryTeam    GullyTemporaryTeam? @relation(fields: [temporaryTeamId], references: [id], onDelete: SetNull)
+
+  @@unique([gullyMatchId, playerId])
+  @@index([gullyMatchId])
+  @@index([playerId])
+  @@index([temporaryTeamId])
+}
+
+model GullyInnings {
+  id                   String                  @id @default(uuid())
+  gullyMatchId         String
+  inningsNumber        Int
+  roundNumber          Int                     @default(1)
+  batterId             String?
+  battingTeamName      String
+  bowlingTeamName      String
+  battingTempTeamId    String?
+  bowlingTempTeamId    String?
+  totalRuns            Int                     @default(0)
+  wickets              Int                     @default(0)
+  legalBalls           Int                     @default(0)
+  oversCompletedText   String                  @default("0.0")
+  status               InningsStatus           @default(IN_PROGRESS)
+  targetRuns           Int?
+  byes                 Int                     @default(0)
+  legByes              Int                     @default(0)
+  wides                Int                     @default(0)
+  noBalls              Int                     @default(0)
+  penaltyRuns          Int                     @default(0)
+  currentStrikerId     String?
+  currentNonStrikerId  String?
+  currentBowlerId      String?
+  lastBowlerId         String?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+
+  gullyMatch           GullyMatch              @relation(fields: [gullyMatchId], references: [id], onDelete: Cascade)
+  deliveries           GullyDelivery[]
+  wicketsList          GullyWicket[]
+  battingScorecards    GullyBattingScorecard[]
+  bowlingScorecards    GullyBowlingScorecard[]
+
+  @@unique([gullyMatchId, inningsNumber])
+  @@index([gullyMatchId])
+}
+
+model GullyDelivery {
+  id                           String         @id @default(uuid())
+  inningsId                    String
+  overNumber                   Int
+  ballNumber                   Int
+  strikerId                    String
+  nonStrikerId                 String?
+  bowlerId                     String
+  batterRuns                   Int            @default(0)
+  extraRuns                    Int            @default(0)
+  extraType                    ExtraType      @default(NONE)
+  totalRuns                    Int            @default(0)
+  isLegalDelivery              Boolean        @default(true)
+  isWicket                     Boolean        @default(false)
+  dismissalType                DismissalType?
+  dismissedPlayerId            String?
+  fielderId                    String?
+  bowlerCredited               Boolean        @default(false)
+  runsCompletedBeforeDismissal Int            @default(0)
+  strikeRotated                Boolean        @default(false)
+  incomingBatterId             String?
+  prevStrikerId                String?
+  prevNonStrikerId             String?
+  prevBowlerId                 String?
+  createdAt                    DateTime       @default(now())
+
+  innings                      GullyInnings   @relation(fields: [inningsId], references: [id], onDelete: Cascade)
+  wickets                      GullyWicket[]
+
+  @@index([inningsId])
+  @@index([strikerId])
+  @@index([bowlerId])
+  @@index([overNumber])
+}
+
+model GullyWicket {
+  id             String         @id @default(uuid())
+  inningsId      String
+  deliveryId     String?
+  playerId       String
+  dismissalType  DismissalType
+  bowlerCredited Boolean        @default(true)
+  bowlerId       String?
+  fielderId      String?
+  overBallText   String
+  teamRunsAtFall Int
+  wicketNumber   Int
+  createdAt      DateTime       @default(now())
+
+  innings        GullyInnings   @relation(fields: [inningsId], references: [id], onDelete: Cascade)
+  delivery       GullyDelivery? @relation(fields: [deliveryId], references: [id], onDelete: SetNull)
+  player         Player         @relation("GullyDismissedPlayer", fields: [playerId], references: [id])
+  bowler         Player?        @relation("GullyBowlerWickets", fields: [bowlerId], references: [id])
+  fielder        Player?        @relation("GullyFielderDismissals", fields: [fielderId], references: [id])
+
+  @@index([inningsId])
+  @@index([playerId])
+  @@index([bowlerId])
+}
+
+model GullyBattingScorecard {
+  id            String         @id @default(uuid())
+  inningsId     String
+  playerId      String
+  battingOrder  Int            @default(0)
+  runs          Int            @default(0)
+  balls         Int            @default(0)
+  fours         Int            @default(0)
+  sixes         Int            @default(0)
+  strikeRate    Float          @default(0.0)
+  notOut        Boolean        @default(true)
+  dismissalType DismissalType?
+  dismissalText String?
+  bowlerId      String?
+  fielderId     String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  innings       GullyInnings   @relation(fields: [inningsId], references: [id], onDelete: Cascade)
+  player        Player         @relation("GullyBattingScores", fields: [playerId], references: [id])
+
+  @@unique([inningsId, playerId])
+  @@index([inningsId])
+  @@index([playerId])
+}
+
+model GullyBowlingScorecard {
+  id             String       @id @default(uuid())
+  inningsId      String
+  playerId       String
+  bowlingOrder   Int          @default(0)
+  legalBalls     Int          @default(0)
+  oversText      String       @default("0.0")
+  maidens        Int          @default(0)
+  runsConceded   Int          @default(0)
+  wickets        Int          @default(0)
+  economy        Float        @default(0.0)
+  wides          Int          @default(0)
+  noBalls        Int          @default(0)
+  allocatedOvers Int          @default(1)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  innings        GullyInnings @relation(fields: [inningsId], references: [id], onDelete: Cascade)
+  player         Player       @relation("GullyBowlingScores", fields: [playerId], references: [id])
+
+  @@unique([inningsId, playerId])
+  @@index([inningsId])
+  @@index([playerId])
+}
